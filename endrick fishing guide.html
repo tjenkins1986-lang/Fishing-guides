@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Endrick Fishing Guide — LLAIA</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+  :root {
+    --water:    #1a3a4a;
+    --water-mid:#2c5f7a;
+    --peat:     #8b6914;
+    --moss:     #3d6b3d;
+    --bank:     #c8a96e;
+    --slate:    #2e3440;
+    --light:    #f0ece4;
+    --panel-bg: #1c2a34;
+    --card-bg:  #243340;
+    --text:     #e8e2d8;
+    --muted:    #8fa8b8;
+    --pill-h:   40px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Georgia', serif; background: var(--water); color: var(--text); overflow: hidden; }
+
+  /* ── Header ─────────────────────────────────── */
+  #header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    background: var(--slate);
+    border-bottom: 2px solid var(--peat);
+    padding: 10px 14px 6px;
+  }
+  #header h1 {
+    font-size: 15px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--bank); font-weight: normal;
+  }
+  #header p { font-size: 11px; color: var(--muted); margin-top: 1px; font-family: sans-serif; }
+
+  /* ── Filter pills ────────────────────────────── */
+  #filters {
+    position: fixed; top: 58px; left: 0; right: 0; z-index: 999;
+    display: flex; gap: 7px; padding: 8px 12px;
+    background: rgba(30,42,52,0.96); backdrop-filter: blur(4px);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #filters::-webkit-scrollbar { display: none; }
+  .pill {
+    flex-shrink: 0; height: var(--pill-h);
+    padding: 0 13px; border-radius: 20px;
+    font-size: 12px; font-family: sans-serif; font-weight: 600;
+    letter-spacing: 0.04em; border: 1.5px solid transparent;
+    cursor: pointer; transition: all 0.18s; display: flex; align-items: center; gap: 5px;
+    background: var(--card-bg); color: var(--muted);
+  }
+  .pill.active { color: #fff; border-color: currentColor; }
+  .pill[data-filter="all"].active    { color: var(--bank); background: rgba(139,105,20,0.18); }
+  .pill[data-filter="pool"].active   { color: #5bafd6; background: rgba(91,175,214,0.15); }
+  .pill[data-filter="run"].active    { color: #f0c040; background: rgba(240,192,64,0.15); }
+  .pill[data-filter="parking"].active{ color: #7fc87f; background: rgba(127,200,127,0.15); }
+  .pill[data-filter="wading"].active { color: #a0c8a0; background: rgba(160,200,160,0.12); }
+  .pill[data-filter="info"].active   { color: #b0b8c8; background: rgba(176,184,200,0.13); }
+
+  /* ── Map ─────────────────────────────────────── */
+  #map {
+    position: fixed;
+    top: 106px; left: 0; right: 0;
+    bottom: 0;
+    z-index: 1;
+    transition: bottom 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  #map.panel-open { bottom: 52vh; }
+
+  /* ── SEPA gauge bar ──────────────────────────── */
+  #gauge-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 900;
+    background: var(--slate);
+    border-top: 1px solid var(--water-mid);
+    padding: 8px 14px;
+    display: flex; align-items: center; gap: 10px;
+    font-family: sans-serif; font-size: 12px;
+    transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  #gauge-bar.hidden { transform: translateY(100%); }
+  #gauge-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--muted);
+    flex-shrink: 0;
+  }
+  #gauge-text { color: var(--muted); flex: 1; }
+  #gauge-text strong { color: var(--text); }
+  #gauge-link {
+    color: var(--bank); text-decoration: none; font-size: 11px;
+    border: 1px solid var(--peat); border-radius: 4px; padding: 3px 8px;
+  }
+
+  /* ── Bottom panel ────────────────────────────── */
+  #panel {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    z-index: 800;
+    height: 52vh;
+    background: var(--panel-bg);
+    border-top: 2px solid var(--peat);
+    transform: translateY(100%);
+    transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+    display: flex; flex-direction: column;
+    border-radius: 16px 16px 0 0;
+  }
+  #panel.open { transform: translateY(0); }
+
+  #panel-handle {
+    width: 38px; height: 4px; border-radius: 2px;
+    background: var(--muted); margin: 10px auto 0; flex-shrink: 0; opacity: 0.5;
+  }
+
+  #panel-content {
+    flex: 1; overflow-y: auto; padding: 12px 16px 20px;
+    scrollbar-width: thin; scrollbar-color: var(--water-mid) transparent;
+  }
+
+  #panel-type-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: sans-serif; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 10px; margin-bottom: 8px;
+  }
+
+  #panel-name {
+    font-size: 22px; color: var(--bank); line-height: 1.2;
+    margin-bottom: 10px;
+  }
+
+  #panel-desc {
+    font-size: 14px; line-height: 1.7; color: var(--text);
+    font-family: sans-serif; font-weight: 300;
+  }
+
+  #panel-conditions {
+    margin-top: 14px; padding: 10px 12px;
+    background: rgba(0,0,0,0.2); border-radius: 8px;
+    border-left: 3px solid var(--peat);
+    font-family: sans-serif; font-size: 12px; color: var(--muted);
+    line-height: 1.6;
+  }
+  #panel-conditions strong { color: var(--bank); display: block; margin-bottom: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  #panel-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 16px 10px; border-top: 1px solid rgba(255,255,255,0.06);
+    flex-shrink: 0;
+  }
+  #panel-close {
+    background: none; border: 1px solid var(--water-mid); color: var(--muted);
+    padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    font-family: sans-serif;
+  }
+  #panel-directions {
+    background: var(--moss); border: none; color: #fff;
+    padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    font-family: sans-serif; font-weight: 600; text-decoration: none;
+    display: inline-block;
+  }
+
+  /* ── My location button ──────────────────────── */
+  #locate-btn {
+    position: fixed; right: 14px; bottom: 56px; z-index: 850;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: var(--slate); border: 1.5px solid var(--water-mid);
+    color: var(--bank); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition: bottom 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  #locate-btn.panel-open { bottom: calc(52vh + 60px); }
+
+  /* ── Legend ──────────────────────────────────── */
+  #legend-toggle {
+    position: fixed; left: 14px; bottom: 56px; z-index: 850;
+    background: var(--slate); border: 1.5px solid var(--water-mid);
+    color: var(--muted); font-size: 11px; padding: 0 10px; height: 42px;
+    border-radius: 8px; cursor: pointer; font-family: sans-serif;
+    transition: bottom 0.35s cubic-bezier(.4,0,.2,1);
+  }
+  #legend-toggle.panel-open { bottom: calc(52vh + 60px); }
+  #legend {
+    position: fixed; left: 14px; bottom: 106px; z-index: 849;
+    background: var(--panel-bg); border: 1px solid var(--water-mid);
+    border-radius: 10px; padding: 12px 14px;
+    font-family: sans-serif; font-size: 12px;
+    display: none; min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  #legend.visible { display: block; }
+  .legend-row { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; color: var(--muted); }
+  .legend-row:last-child { margin-bottom: 0; }
+  .leg-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .leg-line { width: 24px; height: 4px; border-radius: 2px; flex-shrink: 0; }
+
+  /* Leaflet popup override */
+  .leaflet-popup-content-wrapper {
+    background: var(--slate); color: var(--text); border-radius: 8px;
+    font-family: sans-serif; font-size: 13px;
+  }
+  .leaflet-popup-tip { background: var(--slate); }
+
+  /* Water level indicators in desc */
+  .water-tag {
+    display: inline-block; font-size: 10px; font-family: sans-serif;
+    font-weight: 700; padding: 1px 6px; border-radius: 4px; margin: 1px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .wt-high  { background: rgba(91,175,214,0.25); color: #5bafd6; }
+  .wt-all   { background: rgba(127,200,127,0.2); color: #7fc87f; }
+  .wt-low   { background: rgba(240,192,64,0.2); color: #f0c040; }
+  .wt-night { background: rgba(160,100,200,0.2); color: #c8a0e0; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>&#127907; River Endrick — LLAIA Fishing Guide</h1>
+  <p>Loch Lomond Angling Improvement Association</p>
+</div>
+
+<div id="filters">
+  <button class="pill active" data-filter="all">All</button>
+  <button class="pill" data-filter="pool">&#128526; Pools</button>
+  <button class="pill" data-filter="run">&#127754; Runs</button>
+  <button class="pill" data-filter="parking">&#128663; Parking</button>
+  <button class="pill" data-filter="wading">&#129463; Wading</button>
+  <button class="pill" data-filter="info">&#8505;&#65039; Info</button>
+</div>
+
+<div id="map"></div>
+
+<button id="locate-btn" title="Find my location">&#127919;</button>
+<button id="legend-toggle">Legend</button>
+<div id="legend">
+  <div class="legend-row"><span class="leg-dot" style="background:#5bafd6"></span>Fishing pool</div>
+  <div class="legend-row"><span class="leg-dot" style="background:#f0c040"></span>Run / flat</div>
+  <div class="legend-row"><span class="leg-dot" style="background:#7fc87f"></span>Parking</div>
+  <div class="legend-row"><span class="leg-dot" style="background:#a0c8a0; border:1.5px solid #3d6b3d"></span>Wading point</div>
+  <div class="legend-row"><span class="leg-dot" style="background:#b0b8c8"></span>Info / notice</div>
+  <div class="legend-row"><span class="leg-dot" style="background:#ff6b6b"></span>Warning</div>
+  <div class="legend-row"><span class="leg-dot" style="background:#c8a96e"></span>Landmark</div>
+  <div style="margin-top:8px; margin-bottom:6px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px; color:#8fa8b8; font-size:11px; text-transform:uppercase; letter-spacing:.06em;">Beat boundaries</div>
+  <div class="legend-row"><span class="leg-line" style="background:#e05555"></span>Beat limit (private)</div>
+  <div class="legend-row"><span class="leg-line" style="background:#1a7ad4"></span>LLAIA water</div>
+  <div class="legend-row"><span class="leg-line" style="background:#5bafd6; opacity:.7"></span>River course</div>
+  <div class="legend-row"><span class="leg-line" style="background:#3d6b3d"></span>Wading crossing</div>
+</div>
+
+<div id="gauge-bar">
+  <span id="gauge-dot"></span>
+  <span id="gauge-text">River level: <strong id="gauge-value">loading…</strong></span>
+  <a id="gauge-link" href="https://www.sepa.org.uk/environment/water/flooding/river-levels/?flood-alert=250020" target="_blank">SEPA &#8599;</a>
+</div>
+
+<div id="panel">
+  <div id="panel-handle"></div>
+  <div id="panel-content">
+    <div id="panel-type-badge"></div>
+    <div id="panel-name">Select a feature</div>
+    <div id="panel-desc"></div>
+    <div id="panel-conditions" style="display:none">
+      <strong>Water conditions</strong>
+      <span id="panel-conditions-text"></span>
+    </div>
+  </div>
+  <div id="panel-nav">
+    <button id="panel-close">&#8592; Close</button>
+    <a id="panel-directions" href="#" target="_blank">Directions &#8599;</a>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const RAW_DATA = [{"type":"point","name":"Long Pool","desc":"Fished from left bank this pool fishes best in high water.","feature_type":"pool","lat":56.067005,"lng":-4.277029},{"type":"point","name":"Cowdenmill Parking","desc":"The lay by to the north of the road with the big rocks in it is the best place to park in this area.","feature_type":"parking","lat":56.067963,"lng":-4.294024},{"type":"point","name":"Coolies Parking","desc":"You can park at the bridge over the burn on both sides of the road.","feature_type":"parking","lat":56.064226,"lng":-4.271193},{"type":"line","name":"Cowdenmill upper limit","desc":"Upstream of this point to Graystokes Bridge the river is private and is not open to LLAIA members","feature_type":"boundary_red","coords":[[56.065148,-4.297457],[56.064298,-4.296641],[56.063759,-4.296019]]},{"type":"point","name":"Ballochruin Bridge","desc":"There is parking available at the bridge. LLAIA Own the right bank looking upstream of the bridge to the next mark. Fishing downstream on the left bank is leased by the LLAIA - downstream on the right bank is private as far as the Drumtian beat. There is a deep pool running under the pipes at the bridge which is a good holding pool. There is a huge rock in the water close to the steep bank on the left bank and fish can be seen holding around it. Sea trout can be taken here at night.","feature_type":"parking","lat":56.061015,"lng":-4.364405},{"type":"line","name":"Upper limit of LLAIA owned fishings","desc":"Downstream of this mark the fishing is owned by the LLAIA on the left bank","feature_type":"boundary_red","coords":[[56.061926,-4.355564],[56.062645,-4.357624]]},{"type":"point","name":"Oak Tree Pool","desc":"The Oak tree pool is fished from the left bank and is one of the most productive pools in the area even though it is not particularly deep. Fish seem to pause there on their way upstream and the best holding area is towards the tail of the pool where there is some depth. The run and pool below the Oak tree can be productive with fish lying on both sides of the stream as it enters the pool. The left hand bank is very steep and deep so it is worth hanging your flies in close to the bank.","feature_type":"pool","lat":56.061782,"lng":-4.360757},{"type":"point","name":"Red Brae","desc":"The Red Brae is a popular pool fished from the right hand bank - it is known to hold fish and there are lots of little pockets above it which need to be explored to get the most from them. There is a little dub in the tail of the Red Brae which is a stopping place for running fish.","feature_type":"pool","lat":56.061938,"lng":-4.38612},{"type":"point","name":"Drumtian Parking","desc":"Parking: You can park on the Drumtian lane which is accessed via the little road going north just as you leave Killearn at its Eastern boundary. The road takes you right down to the footbridge. Take care as you go down this road as it is rather bumpy. Also when you reach a fork in the road take the left hand fork.","feature_type":"parking","lat":56.058547,"lng":-4.379811},{"type":"line","name":"lower limit Drumtian","desc":"This is the lower limit of the Drumtian beat. Downstream of this the river is in private hands and members cannot fish there,","feature_type":"boundary_red","coords":[[56.064705,-4.383556],[56.064825,-4.382858],[56.064891,-4.382526]]},{"type":"line","name":"Drumtian Upper limit","desc":"This is the Upper limit of the Drumtian beat. Upstream of this is private on the right bank and the Association leases the left hand bank","feature_type":"boundary_red","coords":[[56.06165,-4.37392],[56.06089,-4.373224],[56.060896,-4.373224]]},{"type":"point","name":"Balfron bridge","desc":"There is parking available at the bridge. The LLAIA leases fishing on the left bank down to the March with the Oak Tree stretch which it owns.","feature_type":"parking","lat":56.063843,"lng":-4.345329},{"type":"point","name":"Black Lynn","desc":"This is a deep holding pool fished from the left hand bank. the best areas are at the head and tail of the pool but you can expect a fish anywhere along its length. It can also fish at night for sea trout.","feature_type":"pool","lat":56.06401,"lng":-4.355468},{"type":"point","name":"Craigbell","desc":"This pool is available to members of the LLAIA - it is one of the best holding pools on the River Endrick and is fished from the Left bank. Only 2 anglers may fish at any time- all coloured fish must be returned and there is a 2 fish limit per day.","feature_type":"pool","lat":56.052724,"lng":-4.407653},{"type":"point","name":"Potts of Gartness","desc":"This is not available to members to fish but is a local landmark where salmon and sea trout can be seen leping the falls on their way upstream.","feature_type":"landmark","lat":56.049459,"lng":-4.407138},{"type":"point","name":"Coolies Lynn","desc":"this is an excellent pool fished from the left bank. Fish can be taken all down the pool.","feature_type":"pool","lat":56.06546,"lng":-4.269261},{"type":"point","name":"Rabbitty Burn","desc":"This is a good deep pool fished from the right hand bank. The top of the pool can be fished from the left bank.","feature_type":"pool","lat":56.059182,"lng":-4.23568},{"type":"point","name":"Fintry Parking","desc":"Behind the Rugby Club at Fintry there are a few good pools, which can fish well in high water. Parking: You can park on the main road in Fintry alongside the Rugby pitch and it is then only a short walk round the Rugby pitch to the pools in question.","feature_type":"parking","lat":56.055408,"lng":-4.225681},{"type":"point","name":"Fintry Pot","desc":"The Fintry Pot is an excellent deep holding pool with a gravel bar on the inside of the bend just where the river takes a sharp left hand turn. There is deep water over under the steep right hand bank and a fish can be taken anywhere down the length of the pool. The tail often holds a fish resting for a short time after running up through the stream below the pool.","feature_type":"pool","lat":56.059135,"lng":-4.227955},{"type":"point","name":"Meetings Lynn","desc":"This pool is at the junction of the Endrick and the Blane water and can fish earlier in the season than most parts of the Endrick. The Meetings Lynn itself has filled in with gravel and does not hold much depth. Fish are sometimes taken up on the Blane part of the pool where there is a fair bit of depth. The next pool down from the Meetings is a very popular pool which has reasonable depth and a fair bit of cover available. The river turns a right hand turn into an area that is very tricky to fish properly but does hold fish at the right times. There are lots of fallen trees etc in the area which are the main reason fish can lie here, but they can be tricky to fish around.","feature_type":"pool","lat":56.03863,"lng":-4.404144},{"type":"point","name":"Drumtian","desc":"If you walk up from here you come to Ballochruin and if you walk down you reach the the Red Brae and The Wheel pool. This stretch is owned by the LLAIA and stretches from where the river takes a left hand turn above some gabion nets and a little ditch flows in on the right hand bank down to the bend of The Wheel pool. There are signpost showing the limits. Above the footbridge there is a little pool the top of which can be fished from the right hand bank \u2013 you need to get into the water and wade until it drops off. The main part of the pool leading down to the bridge is best fished from the right hand bank \u2013 take care though there is some deep water just off the bank. This pool can fish well for sea trout at night but is an awkward pool to get access to. The pool under the bridge and downstream of it often holds a fish or two as do each of the pools and runs leading into the Red Brae on the corner. There are distinct pockets in this area that hold fish even after a spate has run off. Great care needs to be taken when fishing in lower water so at to avoid disturbing fish.","feature_type":"pool","lat":56.059458,"lng":-4.380798},{"type":"point","name":"Bottom of Black Lynn","desc":"There is a deep little pool just as the river takes a sharp right hand turn where the little ditch runs in on the left bank. Fishing from the left bank you can hang your flies in the deep water close to the bank. This area also fishes for sea trout at night.","feature_type":"pool","lat":56.062285,"lng":-4.356272},{"type":"point","name":"Balfron Bridge pool","desc":"This pool is well worth a throw in higher water as are all of the little streams and dubs from here down to the Black Lynn.","feature_type":"pool","lat":56.063226,"lng":-4.345597},{"type":"point","name":"Barns ford","desc":"If you walk up from the footbridge at Barnsford there is a sign indicating the start of the stretch. Above the split in the river there are a couple of little dubs that can hold fish and a flat leading down into the split which can fish well in higher water. Below the split there are a number of fallen trees etc which provide good cover for fish and encourage them to lie in the area. The pool below the split can fish very well from either bank and is a decent pool for sea trout at night. The pool that runs under the bridge has some pretty deep dubs in it and it has a lovely tail that often produces a fish. From here down there are a number of runs and glides all of which produce fish especially when fish are running.","feature_type":"pool","lat":56.043521,"lng":-4.403973},{"type":"point","name":"Parking for Barnsford","desc":"you can park at the end of the lane leading down to the footbridge but be very careful not to intrude on the farmers activities - he will need access through the gates on the track.","feature_type":"parking","lat":56.043449,"lng":-4.403114},{"type":"point","name":"Sand Martin pool","desc":"This is the name used by locals for this pool - for obvious reasons. It can be very tricky to fish from the right hand bank which is a deep high bank. Below here there are a few small streams and dubs which can be worth a cast. Sea trout are sometimes caught in this area at night. This portion of the river can fish a bit earlier than the stretches above the Potts with fish occasionally coming off in May.","feature_type":"pool","lat":56.041315,"lng":-4.408951},{"type":"point","name":"Cowdenmill Dam  Pool","desc":"The dam has been mostly washed away but there is a good pool remaining which holds fish. Watch out for the tree which is wedged in the main body of the pool as hooked fish will often head straight for this snag.","feature_type":"pool","lat":56.064322,"lng":-4.299603},{"type":"point","name":"Warning","desc":"The area on the north bank downstream from here to the next red marker is not recommended for anglers with limited mobility. It does have some interesting areas to fish which can be challenging but rewarding.","feature_type":"warning","lat":56.06667,"lng":-4.301791},{"type":"point","name":"Warning","desc":"The area upstream on the north bank from here to the next red marker is not recommended for anglers with limited mobility. It does have some interesting areas to fish which can be challenging but rewarding.","feature_type":"warning","lat":56.066047,"lng":-4.314559},{"type":"point","name":"Killunan","desc":"The first pool downstream of the bridge is Killunan, which is fished from the right hand bank (Rugby club side). There is a nice deep dub in the pool which often holds a fish. Be very cautious as you fish here \u2013 it is a very narrow river and it pays to employ some stealth. The angler who does will always out-fish the one who walks straight into the river and risks disturbing fish unduly. Below Killunan there is a long flat that runs between trees on both side but is only accessible when the water is just right. Be cautious though and if you are in any doubt about safety leave it out.","feature_type":"pool","lat":56.054498,"lng":-4.226303},{"type":"point","name":"The Back Lade","desc":"Back Lade is the next pool, which has a high bank on the left hand bank, and some trees have fallen in providing cover for fish and encouraging them to lie there. It is quite a long pool in upper Endrick terms and can be a productive pool when the river is showing 8 to 15 inches on the gauge which is just a short way downstream from it.","feature_type":"pool","lat":56.055864,"lng":-4.228696},{"type":"point","name":"River Level Gauge","desc":"The guage is on the left hand bank and is best viewed from the right hand bank - it is right at the downstream end of the rugby field. From the gauge all the way down to the Fintry pot can be fished first from the right bank and then crossing over to fish into the Fintry Pot from the left bank.","feature_type":"info","lat":56.05802,"lng":-4.228578},{"type":"point","name":"Trackside pool","desc":"This is a deep little dub that can be very productive and has deep eater on the right hand bank. It is fished from the left hand bank but you should be careful if wading - it gets deep very quickly and the gravel will shift under your feet.","feature_type":"pool","lat":56.059614,"lng":-4.229618},{"type":"point","name":"Stinky Burn","desc":"A good pool that holds both slamon and sea trout. Mainly fished at the top half but don't miss out the bottom half of the pool in high water where fish may rest.","feature_type":"pool","lat":56.067508,"lng":-4.265184},{"type":"point","name":"Round Pool","desc":"There is a fast run between the Stinky Burn and the Round Pool which few people fish. At the bottom of this run is the Round Pool, the run into the pool can always be fished unless extremely low, and the rest of the pool is fishable in bigger water, the slack half way down on the left is not particularly fishy and can be waded through while fishing the breadth of the pool. Fish the pool right down to the lip and over the width of the pool from the bush at the opposite bank.","feature_type":"pool","lat":56.066337,"lng":-4.266509},{"type":"point","name":"Gully","desc":"To get to the Gully, leave the bottom of the Wee Netherton cross the style into the next field and cross the fence to enter water above the first tree at top of Gully. The run down to the actual pool is always worth fishing through. Wading is a bit uneven and requires a little care. Fish down to the bushes then fish a long line to reach the lower part of the pool. It is adviseable to come out of the pool at this point.","feature_type":"pool","lat":56.06776,"lng":-4.261622},{"type":"point","name":"Wee Netherton","desc":"The Wee Netherton is approached when you come out of the flat and go round the trees downriver about 30 metres and fish the run into the wee flat. The river bottom changes here from year to year and potential lies have to be read by the angler. Care must be taken in big water as the gravel may give way at the top of pool. Usually upper half of this stretch fishes best in the faster water but its worth fishing the slower water also unless the water is too low.","feature_type":"pool","lat":56.067613,"lng":-4.257991},{"type":"point","name":"Upper Netherton","desc":"The Upper Netherton pool is best fished from the north bank. When approached upriver from the Coolies direction on the left bank, access is by wading the ford at gate on the river between the bottom of Upper Netherton pool and top of Netherton Flat. Extreme care should be taken and fording the river should only be attempted when the water has dropped to a safe wading level. The flat above the run can be fished hard into the opposite bank before fishing down the run into the Netherton main pool. The pool is very deep and is not normally wadeable down its full length, the pool has to be exited unless the water is very low. Walk down bank to the bottom of pool and cross ford to the top of Netherton Flat at the gate.","feature_type":"pool","lat":56.066292,"lng":-4.253055},{"type":"point","name":"Netherton Flat","desc":"Netherton Flat generally fishes better in a big water when the river cannot be forded. In these conditions the flat will fish over its full length and breadth.","feature_type":"run","lat":56.066562,"lng":-4.255174},{"type":"point","name":"Brochmore","desc":"Brochmore, has changed a bit over the years, fishes better in a biggish water.","feature_type":"pool","lat":56.067574,"lng":-4.272501},{"type":"point","name":"Manse Pool","desc":"Manse Pool, fished from the left hand bank, last pool in this stretch.","feature_type":"pool","lat":56.067688,"lng":-4.282554},{"type":"point","name":"Netherton Ford","desc":"Do not attempt to cross unless water is low enough to wade safely.","feature_type":"wading","lat":56.066418,"lng":-4.254456},{"type":"line","name":"Bogside Upper Limit","desc":"Upper limit of Bogside fishings. Upstream of this point is private and not available to LLAIA members.","feature_type":"boundary_red","coords":[[56.052545,-4.204717],[56.051886,-4.205124],[56.051874,-4.205081],[56.051862,-4.205124],[56.051862,-4.205081]]},{"type":"point","name":"Pool 2","desc":"Forms below the island at Bogside Farm. Can fish at all heights and is easy to fish from the south bank.","feature_type":"pool","lat":56.053491,"lng":-4.210467},{"type":"point","name":"Bogside","desc":"Upper pool on Bogside beat can fish well in high water when SEPA gauge height is above 1m.","feature_type":"pool","lat":56.052209,"lng":-4.205682},{"type":"point","name":"Long Rool run","desc":"This run leads into the Long Pool and if care is exercised can be waded right down into the neck of the pool. This run fishes at all heights of water.","feature_type":"run","lat":56.05421,"lng":-4.212613},{"type":"point","name":"Pool 3","desc":"A deep pool that fishes at all heights.","feature_type":"pool","lat":56.055552,"lng":-4.214458},{"type":"point","name":"Shingle run","desc":"The pool that was here has gradually been filled in and is now a deep narrow run that is eating steadily into the farmland on the far bank. Potentially a place for a resting fish.","feature_type":"run","lat":56.055976,"lng":-4.2158},{"type":"point","name":"Pool 5","desc":"This is a relatively short pool with the main flow coming down the south bank leading to tricky wading in high water. Some good holding water to be found though and worth a fish.","feature_type":"pool","lat":56.05528,"lng":-4.220558},{"type":"point","name":"Newtown","desc":"A long pool that has a deep hole at the top and then various rocky features before giving way to a long glide into the tail. Can fish well in high water.","feature_type":"pool","lat":56.054995,"lng":-4.221389},{"type":"point","name":"Bogside Car Park","desc":"Currently room for 2 cars on the grass verge this will be upgraded in 2014 to hard standing for 3 cars. Parking for LLAIA members only","feature_type":"parking","lat":56.051334,"lng":-4.211976},{"type":"point","name":"Bogside Fishings","desc":"The fishings are the uppermost section of the River Endrick that can be fished by LLAIA members having been formally purchased in late 2013. The fishings are strictly south bank only with the north bank being owned by Culcreuch estate who have elected not to let out the fishing rights on this water. Salmon and sea trout can be present in numbers from September onwards, however, this is very much dependent on water conditions. Earlier fish may be taken given a good spate.","feature_type":"info","lat":56.053132,"lng":-4.214909},{"type":"line","name":"Lower limit of Bogside fishings","desc":"This is the lower limit of the Bogside fishings.","feature_type":"owned_water","coords":[[56.054618,-4.223735],[56.053947,-4.222919],[56.053923,-4.222791],[56.053947,-4.222962]]},{"type":"point","name":"Long Pool","desc":"The pool lives up to its name and can hold fish anywhere along its length. Don't be put of by the awkward cast at the tail of the pool particularly in high water conditions.","feature_type":"pool","lat":56.054791,"lng":-4.214008},{"type":"point","name":"Assorted runs and pots","desc":"From Bogside Pool down to Bogside Farm there are a number of runs and deep pots which can often hold fish. These are best fished in heigh water, however, the wading can be tricky.","feature_type":"run","lat":56.052527,"lng":-4.208268},{"type":"point","name":"Pool 4","desc":"A deep pool that fishes well from the south bank.","feature_type":"pool","lat":56.055648,"lng":-4.216862},{"type":"line","name":"Wading Point","desc":"","feature_type":"wading_line","coords":[[56.055327,-4.219887],[56.055336,-4.219903],[56.055429,-4.219941],[56.055531,-4.219995]]},{"type":"point","name":"Wading point","desc":"If you are parking at Fintry by walking up the river path you can reach the south bank by wading just above where the cattle gate is placed across the river. In years gone by this has been a comfortable wade even in the highest of waters. Be careful though the river can change over time so don't take any risks.","feature_type":"wading","lat":56.055259,"lng":-4.219748},{"type":"point","name":"Good wading point","desc":"At the tail of the long glide you should be able to wade quite comfortably in most water heights.","feature_type":"wading","lat":56.054246,"lng":-4.222537},{"type":"line","name":"Line 9","desc":"","feature_type":"leased_south","coords":[[56.054174,-4.222938],[56.051886,-4.205149],[56.051874,-4.205128]]},{"type":"line","name":"Upper Extent of LLAIA owned fishings","desc":"The LLAIA own the fishings on the south bank from this point downstream to just above the gully at Netherton. The fishings downstream of this point on the south bank are leased to the Association all the way down to the Honeyholm Bridge.","feature_type":"leased_water","coords":[[56.055792,-4.228161],[56.055456,-4.228654],[56.055792,-4.228161]]},{"type":"point","name":"LLAIA Owned water limit","desc":"The LLAIA own the fishings on the south bank from this point downstream to just above the gully at Netherton. The fishings downstream of this point on the south bank are leased to the Association all the way down to the Honeyholm Bridge.","feature_type":"info","lat":56.05548,"lng":-4.228728},{"type":"line","name":"Wading Point","desc":"","feature_type":"wading_line","coords":[[56.05847,-4.227903],[56.058673,-4.22829]]},{"type":"point","name":"Wading Point","desc":"At the tail of the stream just above the waste water outflow the river can be waded with care even in high water conditions. As always take care when wading and if you have any doubts then do not try to cross.","feature_type":"wading","lat":56.058583,"lng":-4.228395},{"type":"point","name":"Open ditch","desc":"Take care crossing the open ditch here. It is planned to instal a small bridge here in 2014.","feature_type":"info","lat":56.058991,"lng":-4.231979},{"type":"point","name":"Rabbity Burn Stream","desc":"When fishing the Rabbity Burn pool do not forget to give the stream above the pool a run through. Casting here is awkward due tio overhanging branches but fish can be found lying here in the right conditions.","feature_type":"run","lat":56.059081,"lng":-4.234822},{"type":"point","name":"Pool 6","desc":"Not a big pool but a good cast in high water conditions. Enter the water in the gap between the trees upstream of the pool and fish down the fast water into the pool itself. Do not wade down the side of the pool as the fish can be very close in.","feature_type":"pool","lat":56.061333,"lng":-4.236351},{"type":"point","name":"Perrit's","desc":"A long pool that fishes well in various heights of water. Tail can be good for sea trout.","feature_type":"pool","lat":56.062088,"lng":-4.237719},{"type":"point","name":"Pool 7","desc":"Another small pool that can fish well in high water. Remember and keep down low when fishing from the high south bank.","feature_type":"pool","lat":56.062513,"lng":-4.240615},{"type":"line","name":"Line 12","desc":"","feature_type":"leased_south","coords":[[56.067466,-4.259391],[56.055313,-4.228663]]},{"type":"point","name":"LLAIA Owned Fishings","desc":"","feature_type":"info","lat":56.062022,"lng":-4.244757},{"type":"point","name":"MIll of Glenboig Parking","desc":"Hard standing parking area for 4 cars at Mill of Glenboig Farm.","feature_type":"parking","lat":56.065448,"lng":-4.249177},{"type":"line","name":"Start of LLAIA fishings","desc":"The LLAIA own the north bank fishings to upstream of the Fintry caravan park and lease the south bank up to Netherton from the Edmonstone family,","feature_type":"boundary_red","coords":[[56.067442,-4.283466],[56.067131,-4.282953],[56.067119,-4.282942]]},{"type":"point","name":"Netherton stream","desc":"The stream and flat above the main Netherton pool can be fished hard into the opposite bank before fishing down the run into the Netherton main pool.","feature_type":"run","lat":56.066125,"lng":-4.251462},{"type":"point","name":"Wading point","desc":"You can wade the river at the head of the stream if care is taken. Do not try and wade here in a high water.","feature_type":"wading","lat":56.06619,"lng":-4.250979},{"type":"line","name":"Wading Point","desc":"Do not attempt in high water.","feature_type":"wading_line","coords":[[56.066077,-4.250905],[56.066223,-4.251147],[56.066223,-4.251157]]},{"type":"point","name":"Streams and deep pots","desc":"From the weir at the caravan park down to Netherton stream there are a number of streams and deep pots that on ocassion produce fish. These are particularly worth fishing in high water conditions.","feature_type":"run","lat":56.066364,"lng":-4.248651},{"type":"point","name":"Pool 8","desc":"A nice run flowing into a reasonable pool which is shaded by trees on the south bank.","feature_type":"pool","lat":56.063873,"lng":-4.242174},{"type":"point","name":"Pool 9","desc":"A pool which can fish over its length in high water conditions.","feature_type":"pool","lat":56.064439,"lng":-4.242504},{"type":"line","name":"Wading Point","desc":"Closest wading point to Fintry parking area.","feature_type":"wading_line","coords":[[56.05448,-4.222807],[56.054294,-4.2227]]},{"type":"line","name":"Line 15","desc":"","feature_type":"river_course","coords":[[56.065735,-4.242446],[56.068682,-4.242317],[56.067915,-4.283681],[56.068682,-4.242446]]},{"type":"point","name":"LLAIA owned water","desc":"LLAIA owned on the north bank from Honeyholm Bridge to above the Balgair Caravan park.","feature_type":"info","lat":56.067867,"lng":-4.252825},{"type":"point","name":"Penn's Lynn","desc":"A narrow corridor of water that can be difficult to fish due to trees on either side. Stealth a necessity here given the closeness to the fish.","feature_type":"run","lat":56.06737,"lng":-4.243115},{"type":"point","name":"Pool 12","desc":"This pool is formed by the existing weir. Both sides of the weir are worth fishing with salmon holding both above and below the weir.","feature_type":"pool","lat":56.067466,"lng":-4.24628},{"type":"point","name":"Pool 10","desc":"A quick turn from the Lynn takes you into a god sized pool which you can fish from the south bank.","feature_type":"pool","lat":56.067855,"lng":-4.243641},{"type":"point","name":"Pool 11","desc":"This pool is formed where the burn meets the Endrick it has began to fill in over the last few years but still has a bit of depth and holds fish.","feature_type":"pool","lat":56.067784,"lng":-4.24451},{"type":"point","name":"Streams and pots","desc":"Between the Gully and the Stinky Burn there are several streams and pots that are worth fishing in high water.","feature_type":"run","lat":56.068191,"lng":-4.262931},{"type":"point","name":"Round Pool run","desc":"The run immediately below the Round Pool is always worth a go, particularly in high water.","feature_type":"run","lat":56.066098,"lng":-4.266692},{"type":"point","name":"Coolies run","desc":"The run below where the burn comes in is worth a cast as fish will sit is the fast water","feature_type":"run","lat":56.065577,"lng":-4.270297},{"type":"point","name":"Private fishing","desc":"Private fishing from Honeyholm bridge downstream. The proprietors of these stretches have instigated a full catch and release policy on these waters.","feature_type":"info","lat":56.06655,"lng":-4.283209},{"type":"point","name":"Parking","desc":"There is limited parking just before the bridge. Be careful you do not obstruct the road.","feature_type":"parking","lat":56.067101,"lng":-4.282544},{"type":"line","name":"Line 16","desc":"","feature_type":"leased_water","coords":[[56.067029,-4.28274],[56.064933,-4.269458],[56.064933,-4.269372],[56.06746,-4.259412],[56.064933,-4.269369]]},{"type":"point","name":"LLAIA leased water","desc":"South bank on this stretch is leased from the Edmonstone family and has been fished by the Association for several generations.","feature_type":"info","lat":56.065436,"lng":-4.272244},{"type":"point","name":"Streams below Brocmore","desc":"Several good streams below Brocmore that produce fish in high water. Watch out for the cuts in the bankside that make for difficult walking.","feature_type":"run","lat":56.067316,"lng":-4.274218},{"type":"line","name":"Line 17","desc":"","feature_type":"river_course","coords":[[56.06421,-4.34195],[56.06448,-4.33786],[56.06435,-4.33473],[56.06528,-4.32953],[56.06538,-4.32425],[56.06357,-4.32389],[56.06336,-4.32241],[56.06516,-4.32047],[56.06623,-4.31517],[56.06677,-4.3094],[56.06676,-4.30878],[56.067053,-4.304409],[56.06686,-4.30242],[56.06664,-4.29913]]},{"type":"line","name":"Line 19","desc":"","feature_type":"river_course","coords":[[56.06667,-4.29918],[56.064801,-4.298923],[56.064657,-4.296948],[56.064609,-4.296906]]},{"type":"line","name":"LLAIA Leased water","desc":"","feature_type":"owned_water","coords":[[56.064178,-4.300124],[56.066334,-4.30124],[56.065496,-4.309866],[56.065735,-4.312398],[56.062812,-4.321196],[56.062764,-4.325745],[56.064873,-4.32523],[56.064034,-4.332869],[56.063986,-4.334621]]},{"type":"point","name":"LLAIA leased water","desc":"The south bank of the Endrick from Cowdenmill Dam Pool down to Birch Wood is leased by the LLAIA. The south bank offers excellent fishing opportunities and complements the north bank which is owned by the Association.","feature_type":"info","lat":56.06522,"lng":-4.312327},{"type":"point","name":"Upper Cowdenmill footbridge","desc":"A good quality iron footbridge which allows access to the south bank pools on the upper Cowdenmill stretch.","feature_type":"wading","lat":56.066526,"lng":-4.30133},{"type":"point","name":"Wading point","desc":"Wading point when the river is 1m or below on the SEPA gauge.","feature_type":"wading","lat":56.065621,"lng":-4.299849},{"type":"point","name":"Pool 11","desc":"A narrow pool that will fish at all heights of water it has a good flow even in low water.","feature_type":"pool","lat":56.066202,"lng":-4.300042},{"type":"point","name":"Mill Pool","desc":"Can be fished from both banks, but best from the south bank where it can be waded the entire length. Do not try to fish from the bank as it is unstable and the overhanging trees will claim your flies.","feature_type":"pool","lat":56.066424,"lng":-4.302853},{"type":"point","name":"Wading point","desc":"The bottom of the mill pool can be waded when the river is running at heights up to 1m on the SEPA gauge.","feature_type":"wading","lat":56.066394,"lng":-4.303572},{"type":"line","name":"Line 20","desc":"","feature_type":"wading_line","coords":[[56.066304,-4.303563],[56.066322,-4.303585],[56.066604,-4.303885]]},{"type":"line","name":"Wading point","desc":"","feature_type":"wading_line","coords":[[56.065873,-4.299722],[56.065939,-4.299958]]},{"type":"point","name":"Mill stream","desc":"Fishes best in a high water and can be waded on the north bank side until you are opposite the overhanging bush on the south bank.","feature_type":"run","lat":56.066406,"lng":-4.30486},{"type":"point","name":"KIltrochan stream","desc":"This stream runs through the remains of an old weir system and is a mixture of fast water and pots. Very worth having a go and can be waded down the entire length of the north bank as long as the river is not too high. Fishes from the north bank.","feature_type":"run","lat":56.065801,"lng":-4.308422},{"type":"point","name":"KIltrochan","desc":"A deep holding pool that only has a reasonable flow in a high water. Fish can be taken anywhere in this pool.","feature_type":"pool","lat":56.066466,"lng":-4.310921},{"type":"point","name":"Wading point","desc":"You can cross here in water up to 1.3m just above the rocks which show mid stream. Before you cross make sure you fish this water carefully as fish often sit either in front or below the rocks.","feature_type":"wading","lat":56.066238,"lng":-4.3106},{"type":"line","name":"Line 22","desc":"","feature_type":"wading_line","coords":[[56.066415,-4.31015],[56.066325,-4.310465]]},{"type":"point","name":"Streams and pots","desc":"From Kiltrochan down to the Breakwater there are a number of runs and pots that can offer fish. These can be fished from both the north or south bank and are worth a go particularly in high water conditions.","feature_type":"run","lat":56.066122,"lng":-4.313491},{"type":"point","name":"Breakwater","desc":"A deep pool that fishes better in low water conditions where fish can be caught out from the boulders.","feature_type":"pool","lat":56.064999,"lng":-4.318067},{"type":"point","name":"Pool 12","desc":"A very long flat which ends in a reasonable sized pool where the burn comes in on the north bank. When the water is high the flat can fish all the way down but in lower water conditions the tail of the pool is still worth fishing. Fishing is from the south bank.","feature_type":"pool","lat":56.064729,"lng":-4.32017},{"type":"point","name":"Old railway bridge","desc":"Members should note that while some people may still use the old bridge to cross on to the south bank this is not recommended. The support on the south bank is giving way and the 'walkway' consists of rusting scaffolding poles - definitely used at your own risk.","feature_type":"warning","lat":56.063501,"lng":-4.321849},{"type":"point","name":"Pool 13","desc":"A good pool located at the old railway bridge. In higher water it can fish its entire length, but still worth a cast as the water is dropping back.","feature_type":"pool","lat":56.063316,"lng":-4.322256},{"type":"point","name":"Pool 14","desc":"Another good pool which offers wading from the ehad of the stream to the tree line if care is taken. Fish can lie fairly close in so stealth is sometimes required.","feature_type":"pool","lat":56.064728,"lng":-4.324759},{"type":"point","name":"Turn Lynn","desc":"A deep holding pool with fish lying throughout. Worth paying attention to the rocks at the head of the pool.","feature_type":"pool","lat":56.065186,"lng":-4.325199},{"type":"point","name":"Unnamed run and flat","desc":"Starts with a fast run and develops into a long flat. It is relatively shallow but is worth a cast in higher water.","feature_type":"run","lat":56.06506,"lng":-4.328645},{"type":"point","name":"Pool 15","desc":"A nice pool which has a large fallen tree located on the south bank where fish can be caught even in lower water if care is taken not to disturb the water. Can be waded and fished all the way down in higher water.","feature_type":"pool","lat":56.064076,"lng":-4.335083},{"type":"point","name":"Lay by","desc":"Parking for up to 3 vehicles","feature_type":"parking","lat":56.062699,"lng":-4.344985},{"type":"line","name":"Line 23","desc":"","feature_type":"owned_water","coords":[[56.063172,-4.34501],[56.064178,-4.340676],[56.063962,-4.33456],[56.063962,-4.334625],[56.063974,-4.334625],[56.063938,-4.334625]]},{"type":"line","name":"Line 24","desc":"","feature_type":"owned_water","coords":[[56.063016,-4.345461],[56.063879,-4.355439],[56.062022,-4.356082]]},{"type":"line","name":"Line 25","desc":"","feature_type":"river_course","coords":[[56.060872,-4.363743],[56.062058,-4.356018],[56.062046,-4.35604],[56.06207,-4.356061],[56.061962,-4.356662]]},{"type":"point","name":"Placemark 100","desc":"","feature_type":"pool","lat":56.060542,"lng":-4.365102},{"type":"point","name":"Placemark 101","desc":"","feature_type":"pool","lat":56.059871,"lng":-4.367173},{"type":"point","name":"Placemark 102","desc":"","feature_type":"pool","lat":56.061129,"lng":-4.372151},{"type":"point","name":"Placemark 103","desc":"","feature_type":"pool","lat":56.060578,"lng":-4.369715},{"type":"point","name":"Placemark 104","desc":"","feature_type":"pool","lat":56.060428,"lng":-4.37714},{"type":"point","name":"Placemark 105","desc":"","feature_type":"run","lat":56.059979,"lng":-4.37905},{"type":"point","name":"Placemark 106","desc":"","feature_type":"run","lat":56.059985,"lng":-4.383931},{"type":"point","name":"Placemark 107","desc":"","feature_type":"pool","lat":56.064729,"lng":-4.382923},{"type":"point","name":"Placemark 108","desc":"","feature_type":"run","lat":56.063699,"lng":-4.383942},{"type":"line","name":"Line 26","desc":"","feature_type":"river_course","coords":[[56.053947,-4.405996],[56.053395,-4.404666],[56.053371,-4.404709]]},{"type":"point","name":"Placemark 109","desc":"","feature_type":"run","lat":56.047116,"lng":-4.404316},{"type":"point","name":"Placemark 110","desc":"","feature_type":"parking","lat":56.060392,"lng":-4.363503},{"type":"line","name":"LLAIA owned water","desc":"","feature_type":"river_course","coords":[[56.064885,-4.382129],[56.06203,-4.38573],[56.0607,-4.3841],[56.05943,-4.38099],[56.06161,-4.37376],[56.06166,-4.3738]]},{"type":"line","name":"Line 28","desc":"","feature_type":"owned_water","coords":[[56.061674,-4.37361],[56.060189,-4.366554],[56.060225,-4.366511],[56.060944,-4.364172]]},{"type":"line","name":"Line 29","desc":"","feature_type":"owned_water","coords":[[56.060692,-4.364215],[56.059542,-4.367584],[56.061147,-4.373592]]},{"type":"point","name":"Cowdenmill fishings","desc":"The north bank of the Endrick from the run just above where the old Cowdenmill dam was located down to the small burn which enters the Endrick just before the Balfron bridge is owned by the Association. This is a great beat which has a mixture of runs and pools. The top and the bottom of the beat are easily accessible, the middle section is more difficult to navigate but is worth the effort.","feature_type":"info","lat":56.066238,"lng":-4.31729},{"type":"point","name":"Mill cottage","desc":"This is a private residence and as such anglers should not walk through the garden to access the river downstream. Cross at the tail of the Mill Pool and fish down. Under no circumstances should anglers use the access road or park their vehicles at the cottage or on the drive down from the Fintry road.","feature_type":"info","lat":56.065903,"lng":-4.302585},{"type":"line","name":"Line 30","desc":"","feature_type":"leased_south","coords":[[56.0641,-4.334623],[56.063621,-4.334516],[56.0641,-4.334623]]},{"type":"point","name":"Alan Cuthbert's Fishings","desc":"Leased by the Association but relatively lightly fished.","feature_type":"info","lat":56.063962,"lng":-4.341372},{"type":"point","name":"Steams and runs","desc":"The streams and runs from the Bridge pool to the Black Lynn are worth fishing as they do hold fish and are often not put under much angling pressure.","feature_type":"run","lat":56.063387,"lng":-4.348163},{"type":"point","name":"Wilson's Upper Limit","desc":"This is the upper limit of the Wilson's stretch which is owned by the Association.","feature_type":"info","lat":56.061986,"lng":-4.355845},{"type":"point","name":"Bridge Pool","desc":"A deep pool which can fish at all water heights.","feature_type":"pool","lat":56.061069,"lng":-4.363589},{"type":"point","name":"Pool 16","desc":"","feature_type":"pool","lat":56.061375,"lng":-4.362153}]
+;
+
+// ── Type config ─────────────────────────────────
+const TYPE_CFG = {
+  pool:    { color: '#5bafd6', radius: 9,  label: '🎣 Pool',    group: 'pool' },
+  run:     { color: '#f0c040', radius: 7,  label: '🌊 Run',     group: 'run' },
+  parking: { color: '#7fc87f', radius: 8,  label: '🚗 Parking', group: 'parking' },
+  wading:  { color: '#a0c8a0', radius: 7,  label: '🥾 Wading',  group: 'wading', border: '#3d6b3d' },
+  info:    { color: '#b0b8c8', radius: 7,  label: 'ℹ️ Info',    group: 'info' },
+  warning: { color: '#ff6b6b', radius: 8,  label: '⚠️ Warning', group: 'info' },
+  landmark:{ color: '#c8a96e', radius: 8,  label: '📍 Landmark',group: 'info' },
+};
+
+const LINE_CFG = {
+  boundary_red:  { color: '#e05555', weight: 3, dash: '6,4',  opacity: 0.85 },
+  owned_water:   { color: '#1a7ad4', weight: 3, dash: null,   opacity: 0.7  },
+  leased_water:  { color: '#1a7ad4', weight: 2, dash: '4,4',  opacity: 0.6  },
+  leased_south:  { color: '#1a7ad4', weight: 2, dash: '4,4',  opacity: 0.55 },
+  river_course:  { color: '#5bafd6', weight: 4, dash: null,   opacity: 0.45 },
+  wading_line:   { color: '#3d6b3d', weight: 4, dash: null,   opacity: 0.9  },
+};
+
+// ── Map init ─────────────────────────────────────
+const map = L.map('map', {
+  center: [56.063, -4.31],
+  zoom: 13,
+  zoomControl: false,
+});
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+  maxZoom: 18,
+}).addTo(map);
+
+// Add zoom control top-right
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+// ── State ────────────────────────────────────────
+let activeFilter = 'all';
+let allLayers = []; // {layer, feature_type, group, ll}
+let selectedLayer = null;
+
+// ── Helpers ──────────────────────────────────────
+function extractWaterConditions(desc) {
+  const hints = [];
+  const d = desc.toLowerCase();
+  if (d.includes('all height') || d.includes('all water')) hints.push('<span class="water-tag wt-all">All heights</span>');
+  if (d.includes('high water') || d.includes('bigger water') || d.includes('biggish')) hints.push('<span class="water-tag wt-high">High water</span>');
+  if (d.includes('low water') || d.includes('lower water') || d.includes('very low')) hints.push('<span class="water-tag wt-low">Low water</span>');
+  if (d.includes('night') || d.includes('sea trout')) hints.push('<span class="water-tag wt-night">Sea trout / night</span>');
+  return hints.join(' ');
+}
+
+function getBadgeStyle(ft) {
+  const map2 = {
+    pool: 'background:rgba(91,175,214,0.2);color:#5bafd6',
+    run: 'background:rgba(240,192,64,0.2);color:#f0c040',
+    parking: 'background:rgba(127,200,127,0.2);color:#7fc87f',
+    wading: 'background:rgba(160,200,160,0.15);color:#a0c8a0',
+    info: 'background:rgba(176,184,200,0.15);color:#b0b8c8',
+    warning: 'background:rgba(255,107,107,0.2);color:#ff6b6b',
+    landmark: 'background:rgba(200,169,110,0.2);color:#c8a96e',
+  };
+  return map2[ft] || map2.info;
+}
+
+// ── Open panel ───────────────────────────────────
+function openPanel(feature, lat, lng) {
+  const cfg = TYPE_CFG[feature.feature_type] || TYPE_CFG.info;
+  const badge = document.getElementById('panel-type-badge');
+  badge.textContent = cfg.label;
+  badge.style.cssText = getBadgeStyle(feature.feature_type);
+
+  document.getElementById('panel-name').textContent = feature.name || 'Unnamed feature';
+  document.getElementById('panel-desc').textContent = feature.desc || 'No description available.';
+
+  const conds = extractWaterConditions(feature.desc || '');
+  const condEl = document.getElementById('panel-conditions');
+  if (conds) {
+    document.getElementById('panel-conditions-text').innerHTML = conds;
+    condEl.style.display = 'block';
+  } else {
+    condEl.style.display = 'none';
+  }
+
+  // Directions link
+  if (lat && lng) {
+    document.getElementById('panel-directions').href =
+      `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    document.getElementById('panel-directions').style.display = 'inline-block';
+  } else {
+    document.getElementById('panel-directions').style.display = 'none';
+  }
+
+  document.getElementById('panel').classList.add('open');
+  document.getElementById('map').classList.add('panel-open');
+  document.getElementById('locate-btn').classList.add('panel-open');
+  document.getElementById('legend-toggle').classList.add('panel-open');
+  document.getElementById('gauge-bar').classList.add('hidden');
+}
+
+function closePanel() {
+  document.getElementById('panel').classList.remove('open');
+  document.getElementById('map').classList.remove('panel-open');
+  document.getElementById('locate-btn').classList.remove('panel-open');
+  document.getElementById('legend-toggle').classList.remove('panel-open');
+  document.getElementById('gauge-bar').classList.remove('hidden');
+  if (selectedLayer) {
+    resetMarkerStyle(selectedLayer);
+    selectedLayer = null;
+  }
+}
+
+function resetMarkerStyle(layerObj) {
+  if (layerObj && layerObj.layer && layerObj.layer.setStyle) {
+    const cfg = TYPE_CFG[layerObj.feature_type] || TYPE_CFG.info;
+    layerObj.layer.setStyle({
+      radius: cfg.radius,
+      fillColor: cfg.color,
+      color: cfg.border || '#1c2a34',
+      weight: 1.5,
+      fillOpacity: 0.88,
+    });
+  }
+}
+
+document.getElementById('panel-close').addEventListener('click', closePanel);
+
+// ── Build markers & lines ────────────────────────
+function makeCircleMarker(f) {
+  const cfg = TYPE_CFG[f.feature_type] || TYPE_CFG.info;
+  const marker = L.circleMarker([f.lat, f.lng], {
+    radius: cfg.radius,
+    fillColor: cfg.color,
+    color: cfg.border || '#1c2a34',
+    weight: 1.5,
+    fillOpacity: 0.88,
+  });
+  marker.on('click', () => {
+    // Reset previous selection
+    if (selectedLayer) resetMarkerStyle(selectedLayer);
+    // Highlight selected
+    marker.setStyle({ radius: cfg.radius + 3, color: '#fff', weight: 2.5, fillOpacity: 1 });
+    selectedLayer = layerObj;
+    map.panTo([f.lat, f.lng], { animate: true });
+    openPanel(f, f.lat, f.lng);
+  });
+  const layerObj = { layer: marker, feature_type: f.feature_type, group: cfg.group };
+  return layerObj;
+}
+
+function makePolyline(f) {
+  const cfg = LINE_CFG[f.feature_type] || { color: '#8fa8b8', weight: 2, dash: null, opacity: 0.6 };
+  const poly = L.polyline(f.coords, {
+    color: cfg.color,
+    weight: cfg.weight,
+    opacity: cfg.opacity,
+    dashArray: cfg.dash,
+  });
+  if (f.desc) {
+    poly.on('click', () => {
+      openPanel(f, null, null);
+    });
+  }
+  return { layer: poly, feature_type: f.feature_type, group: 'line' };
+}
+
+// Add all features to map
+RAW_DATA.forEach(f => {
+  let obj;
+  if (f.type === 'point') obj = makeCircleMarker(f);
+  else if (f.type === 'line') obj = makePolyline(f);
+  if (obj) {
+    obj.layer.addTo(map);
+    allLayers.push(obj);
+  }
+});
+
+// ── Filter logic ─────────────────────────────────
+document.querySelectorAll('.pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    activeFilter = pill.dataset.filter;
+    closePanel();
+
+    allLayers.forEach(obj => {
+      if (obj.group === 'line') {
+        obj.layer.addTo(map);
+        return;
+      }
+      if (activeFilter === 'all') {
+        obj.layer.addTo(map);
+      } else if (obj.group === activeFilter) {
+        obj.layer.addTo(map);
+      } else {
+        map.removeLayer(obj.layer);
+      }
+    });
+  });
+});
+
+// ── Geolocation ──────────────────────────────────
+let locMarker = null;
+document.getElementById('locate-btn').addEventListener('click', () => {
+  if (!navigator.geolocation) { alert('Geolocation not available'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (locMarker) map.removeLayer(locMarker);
+    locMarker = L.circleMarker(ll, {
+      radius: 8, fillColor: '#ff8c42', color: '#fff', weight: 2, fillOpacity: 1
+    }).addTo(map).bindPopup('You are here').openPopup();
+    map.setView(ll, 15);
+  }, () => alert('Could not get location'));
+});
+
+// ── Legend toggle ─────────────────────────────────
+document.getElementById('legend-toggle').addEventListener('click', () => {
+  document.getElementById('legend').classList.toggle('visible');
+});
+
+// Close legend on map click
+map.on('click', () => {
+  document.getElementById('legend').classList.remove('visible');
+});
+
+// ── SEPA gauge (CORS proxy workaround via JSONP fallback) ──
+// SEPA station for Drymen (River Endrick): station ref 234253
+// We use the Riverlevels.uk JSON API as a proxy-friendly source
+async function fetchGauge() {
+  try {
+    // SEPA API — public endpoint, station 234253 (Drymen)
+    const url = 'https://timeseries.sepa.org.uk/Kisters/API/jsonapi/getLatestValues?datasource=0&ts_id=988&returnfields=ts_value,Timestamp&key=';
+    const res = await fetch(url, { mode: 'cors' });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const val = data?.[0]?.ts_value;
+    if (val !== undefined) {
+      const level = parseFloat(val).toFixed(2);
+      updateGauge(level);
+      return;
+    }
+  } catch(e) {}
+  // Fallback: show link only
+  document.getElementById('gauge-value').textContent = 'see SEPA →';
+  document.getElementById('gauge-dot').style.background = '#8fa8b8';
+}
+
+function updateGauge(level) {
+  const el = document.getElementById('gauge-value');
+  const dot = document.getElementById('gauge-dot');
+  el.textContent = level + 'm at Drymen';
+  const lv = parseFloat(level);
+  if (lv >= 1.5) { dot.style.background = '#5bafd6'; el.style.color = '#5bafd6'; }       // High - blue
+  else if (lv >= 0.8) { dot.style.background = '#7fc87f'; el.style.color = '#7fc87f'; }   // Good - green
+  else if (lv >= 0.4) { dot.style.background = '#f0c040'; el.style.color = '#f0c040'; }   // Low - amber
+  else { dot.style.background = '#ff6b6b'; el.style.color = '#ff6b6b'; }                   // Very low - red
+}
+
+fetchGauge();
+
+// ── Close panel on map drag ───────────────────────
+map.on('dragstart', () => {
+  if (document.getElementById('panel').classList.contains('open')) closePanel();
+});
+</script>
+</body>
+</html>
